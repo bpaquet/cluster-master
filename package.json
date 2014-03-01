@@ -11,5 +11,15 @@
   "engines": {
     "node": ">=0.7.7"
   },
+  "dependencies": {
+    "log4node": "0.1.2"
+  },
+  "devDependencies": {
+    "mocha": "1.15.x",
+    "optimist": "x"
+  },
+  "scripts": {
+    "test": "./tests.sh"
+  },
   "license": "BSD"
 }

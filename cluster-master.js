@@ -14,6 +14,10 @@ var cluster = require("cluster")
 , fs = require('fs')
 , util = require('util')
 , minRestartAge = 2000
+, delayBeforeKill = 2000
+, delayBeforeRestartWhenMinRestartAge = 2000
+, delayBetweenShutdownAndDisconnect = undefined
+, delayForRestartChecking = 2000
 , danger = false
 
 exports = module.exports = clusterMaster
@@ -22,9 +26,13 @@ exports.resize = resize
 exports.quitHard = quitHard
 exports.quit = quit
 
+var logger_function = function() {
+  console.error.apply(console, arguments);
+}
+
 var debugStreams = {}
 function debug () {
-  console.error.apply(console, arguments)
+  logger_function.apply(this, arguments)
 
   var msg = util.format.apply(util, arguments)
   Object.keys(debugStreams).forEach(function (s) {
@@ -61,9 +69,21 @@ function clusterMaster (config) {
 
   onmessage = config.onMessage || config.onmessage
 
+  if (config.logger) {
+    logger_function = config.logger
+  }
+
   clusterSize = config.size || os.cpus().length
 
   minRestartAge = config.minRestartAge || minRestartAge
+
+  delayBeforeKill = config.delayBeforeKill || delayBeforeKill
+
+  delayBeforeRestartWhenMinRestartAge = config.delayBeforeRestartWhenMinRestartAge || delayBeforeRestartWhenMinRestartAge
+
+  delayBetweenShutdownAndDisconnect = config.delayBetweenShutdownAndDisconnect || delayBetweenShutdownAndDisconnect
+
+  delayForRestartChecking = config.delayForRestartChecking || delayForRestartChecking
 
   env = config.env
 
@@ -122,7 +142,7 @@ function setupRepl () {
   }
 
   function startRepl () {
-    console.error('starting repl on '+socket+'=')
+    logger_function('starting repl on '+socket+'=');
     process.on('exit', function() {
       try { fs.unlinkSync(socket) } catch (er) {}
     })
@@ -257,6 +277,20 @@ Worker.prototype.kill = function () {
   process.kill(this.pid)
 }
 
+function disconnectWorker(worker) {
+  if (delayBetweenShutdownAndDisconnect) {
+    debug('Sending shutdown signal')
+    worker.send('shutdown');
+    setTimeout(function() {
+      if (worker.process.connected) {
+        worker.disconnect();
+      }
+    }, delayBetweenShutdownAndDisconnect);
+  }
+  else {
+    worker.disconnect();
+  }
+}
 
 function forkListener () {
   cluster.on("fork", function (worker) {
@@ -281,7 +315,7 @@ function forkListener () {
           debug("Worker %j died too quickly, danger", id)
           danger = true
           // still try again in a few seconds, though.
-          setTimeout(resize, 2000)
+          setTimeout(resize, delayBeforeRestartWhenMinRestartAge)
           return
         }
       } else {
@@ -299,7 +333,7 @@ function forkListener () {
       disconnectTimer = setTimeout(function () {
         debug("Worker %j, forcefully killing", id)
         worker.process.kill("SIGKILL")
-      }, 5000)
+      }, delayBeforeKill)
     })
   })
 }
@@ -307,7 +341,7 @@ function forkListener () {
 function restart (cb) {
   if (restarting) {
     debug("Already restarting.  Cannot restart yet.")
-    return
+    return cb && cb("Already restarting.  Cannot restart yet.")
   }
 
   restarting = true
@@ -351,38 +385,47 @@ function restart (cb) {
 
     if (quitting) {
       if (worker && worker.process.connected) {
-        worker.disconnect()
+        disconnectWorker(worker)
       }
       return graceful()
     }
 
+    var new_worker
+
     // start a new one. if it lives for 2 seconds, kill the worker.
     if (first) {
+      var timer
       cluster.once('listening', function (newbie) {
-        var timer = setTimeout(function () {
-          newbie.removeListener('exit', skeptic)
-          if (worker && worker.process.connected) {
-            worker.disconnect()
-          }
-          graceful()
-        }, 2000)
-        newbie.on('exit', skeptic)
-        function skeptic () {
+        if (newbie === new_worker) {
+          timer = setTimeout(function () {
+            cluster.removeListener('exit', skeptic)
+            if (worker && worker.process.connected) {
+              disconnectWorker(worker)
+            }
+            debug('First worker ok, continuing restart')
+            graceful()
+          }, delayForRestartChecking)
+        }
+      })
+      cluster.once('exit', skeptic)
+      function skeptic (worker) {
+        console.log('skeptic')
+        if (worker === new_worker) {
           debug('New worker died quickly. Aborting restart.')
           restarting = false
           clearTimeout(timer)
         }
-      })
+      }
     } else {
       cluster.once('listening', function (newbie) {
         if (worker && worker.process.connected) {
-          worker.disconnect()
+          disconnectWorker(worker)
         }
       })
       graceful()
     }
 
-    cluster.fork(env)
+    new_worker = cluster.fork(env)
   }
 }
 
@@ -400,7 +443,7 @@ function resize (n, cb_) {
     return
 
   function cb() {
-    console.error('done resizing')
+    logger_function.apply('done resizing');
 
     resizing = false
     var q = resizeCbs.slice(0)
@@ -457,7 +500,7 @@ function resize (n, cb_) {
     debug('resizing down', current[i])
     worker.once('exit', then())
     if (worker && worker.process.connected) {
-      worker.disconnect()
+      disconnectWorker(worker)
     }
   }
 }
