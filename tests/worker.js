@@ -18,10 +18,10 @@ var server = http.createServer(function(req, res) {
 	res.end('Hello !');
 });
 
-if (argv.parse_listen) {
+if (argv.parse_listening) {
 	server.once('listening', function() {
 		setTimeout(function() {
-			JSON.parse(require('fs').readFileSync(argv.parse_now).toString());
+			JSON.parse(require('fs').readFileSync(argv.parse_listening).toString());
 		}, 20);
 	});
 }

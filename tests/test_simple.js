@@ -390,4 +390,117 @@ describe('Simple', function() {
     });
   });
 
+  it('Crash at listening', function(done) {
+    run('master.js --log_file toto.log --parse_listening toto.json', false, function(code) {
+      assert.equal(code, 0);
+      var log = logs();
+      assert.equal(log.match(/Start worker (\d+)/g).length, 20);
+      assert.equal(log.match(/Worker (\d+) disconnect/g).length, 20);
+      assert.equal(log.match(/died too quickly/g).length, 20);
+      assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/Restarting all workers/g), null);
+      assert.equal(log.match(/Graceful shutdown successful/g).length, 1);
+      done();
+    });
+    setTimeout(function() {
+      assertListening(0, function() {
+        sendRepl('stop();', function() {
+        });
+      });
+    }, 4000);
+  });
+
+  it('Crash at listening, and repair', function(done) {
+    run('master.js --log_file toto.log --parse_listening toto.json', false, function(code) {
+      assert.equal(code, 0);
+      var log = logs();
+      assert.equal(log.match(/Start worker (\d+)/g).length, 25);
+      assert.equal(log.match(/Worker (\d+) disconnect/g).length, 25);
+      assert.equal(log.match(/died too quickly/g).length, 20);
+      assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/Restarting all workers/g), null);
+      assert.equal(log.match(/Graceful shutdown successful/g).length, 1);
+      done();
+    });
+    setTimeout(function() {
+      assertListening(0, function() {
+        fs.writeFile('tests/toto.json', '{}', function(err) {
+          assert.ifError(err);
+          setTimeout(function() {
+            assertListening(5, function() {
+              sendRepl('stop();', function() {
+              });
+            });
+          }, 1500);
+        });
+      });
+    }, 4000);
+  });
+
+  it('Ok, start, ' + k + ' crash listening, repair', function(done) {
+    fs.writeFile('tests/toto.json', '{}', function(err) {
+      assert.ifError(err);
+      run('master.js --log_file toto.log --parse_listening toto.json', false, function(code) {
+        assert.equal(code, 0);
+        var log = logs();
+        assert.equal(log.match(/Start worker (\d+)/g).length, 10 + 5 + k);
+        assert.equal(log.match(/Worker (\d+) disconnect/g).length, 10 + 5 + k);
+        assert.equal(log.match(/died too quickly/g).length, k);
+        assert.equal(log.match(/Bye (\d+)/g), null);
+        assert.equal(log.match(/Restarting all workers/g).length, 2 + k);
+        assert.equal(log.match(/Graceful shutdown successful/g).length, 1);
+        done();
+      });
+      setTimeout(function() {
+        assertListening(5, function() {
+          sendRepl('restart();', function() {
+            setTimeout(function() {
+              assertListening(5, function(d) {
+                for(var i in d) {
+                  assert(d[i].id > 5);
+                }
+                fs.unlink('tests/toto.json', function(err) {
+                  assert.ifError(err);
+                  var counter = k;
+                  var f = function() {
+                    if (counter === 0) {
+                      fs.writeFile('tests/toto.json', '{}', function(err) {
+                        assert.ifError(err);
+                        sendRepl('restart();', function() {
+                          setTimeout(function() {
+                            assertListening(5, function(d) {
+                              for(var i in d) {
+                                assert(d[i].id > (10 + k));
+                                assert(d[i].id < (16 + k));
+                              }
+                              sendRepl('stop();', function() {
+                              });
+                            });
+                          }, 1500);
+                        });
+                      });
+                    }
+                    else {
+                      assertListening(5, function(d) {
+                        for(var i in d) {
+                          assert(d[i].id > 5);
+                          assert(d[i].id < 11);
+                        }
+                        counter -= 1;
+                        sendRepl('restart();', function() {
+                          setTimeout(f, 500);
+                        });
+                      });
+                    }
+                  };
+                  f();
+                });
+              });
+            }, 1000);
+          });
+        });
+      }, 500);
+    });
+  });
+
 });
