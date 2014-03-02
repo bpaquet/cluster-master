@@ -87,6 +87,12 @@ The `exec`, `env`, `argv`, and `silent` configs are passed to the
 * `onMessage` - Method that gets called when workers send a message to
   the parent.  Called in the context of the worker, so you can reply by
   looking at `this`.
+* `minRestartAge` - If a new worker die before reaching `minRestartAge`, the restart process is stopped, or workers restart are delayed. Default value : 2000
+* `delayBeforeRestartWhenMinRestartAge` - When workers die too fast, the master will wait `delayBeforeRestartWhenMinRestartAge` before restarted them. Default value : 2000
+* `delayBetweenShutdownAndDisconnect` - If you need to do some cleaning before stopping a worker, specify a value in `delayBeforeRestartWhenMinRestartAge`. The master will sent a 'shutdown' message to the worker, and will wait `delayBeforeRestartWhenMinRestartAge` before disconnecting the worker. Default value : none
+* `delayBeforeKill` - A worker is killed by the master when it does not stop after `delayBeforeKill`. Default value : 2000
+* `delayForRestartChecking` - When restarting, the master will start a new worker and will wait `delayForRestartChecking`, and if the worker is alive, the master will start the others workers. Default value: 2000
+* `logger` - A logging function to grab log. Default : console.log
 * `repl` - where to have REPL listen, defaults to `env.CLUSTER_MASTER_REPL` || 'cluster-master-socket'
   * if `repl` is null or false - REPL is disabled and will not be started
   * if `repl` is string path - REPL will listen on unix domain socket to this path
