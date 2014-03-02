@@ -18,6 +18,14 @@ var server = http.createServer(function(req, res) {
 	res.end('Hello !');
 });
 
+if (argv.parse_listen) {
+	server.once('listening', function() {
+		setTimeout(function() {
+			JSON.parse(require('fs').readFileSync(argv.parse_now).toString());
+		}, 20);
+	});
+}
+
 server.listen(8078);
 
 process.on('disconnect', function() {

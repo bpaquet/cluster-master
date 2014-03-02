@@ -295,6 +295,8 @@ function disconnectWorker(worker) {
 
 var resize_timeout_in_danger;
 
+var wait_listening_cb = []
+
 function forkListener () {
   cluster.on("fork", function (worker) {
     worker.birth = Date.now()
@@ -309,6 +311,9 @@ function forkListener () {
 
     worker.on("exit", function () {
       clearTimeout(disconnectTimer)
+      if (wait_listening_cb.length > 0) {
+        cluster.removeListener('listening', wait_listening_cb.shift())
+      }
 
       if (!worker.suicide) {
         debug("Worker %j exited abnormally", id)
@@ -318,7 +323,7 @@ function forkListener () {
           debug("Worker %j died too quickly, danger", id)
           danger = true
           // still try again in a few seconds, though.
-          if (!resize_timeout_in_danger) {
+          if (!resize_timeout_in_danger && !restarting) {
             resize_timeout_in_danger = setTimeout(function() {
               resize_timeout_in_danger = undefined;
               resize()
@@ -407,7 +412,7 @@ function restart (cb) {
     // start a new one. if it lives for 2 seconds, kill the worker.
     if (first) {
       var timer
-      cluster.once('listening', function (newbie) {
+      var listening_cb = function (newbie) {
         if (newbie === new_worker) {
           timer = setTimeout(function () {
             cluster.removeListener('exit', skeptic)
@@ -418,13 +423,14 @@ function restart (cb) {
             graceful()
           }, delayForRestartChecking)
         }
-      })
+      }
+      cluster.once('listening', listening_cb)
       cluster.once('exit', skeptic)
       function skeptic (worker) {
-        console.log('skeptic')
         if (worker === new_worker) {
-          debug('New worker died quickly. Aborting restart.')
+          debug('New worker ' + worker.pid + ' died quickly. Aborting restart.')
           restarting = false
+          cluster.removeListener('listening', listening_cb)
           clearTimeout(timer)
         }
       }
@@ -505,7 +511,12 @@ function resize (n, cb_) {
   // make us have the right number of them.
   if (req > 0) while (req -- > 0) {
     debug('resizing up', req)
-    cluster.once('listening', then())
+    var listening_cb = function() {
+      wait_listening_cb.shift();
+      then()();
+    }
+    wait_listening_cb.push(listening_cb);
+    cluster.once('listening', listening_cb)
     cluster.fork(env)
   } else for (var i = clusterSize; i < c; i ++) {
     var worker = cluster.workers[current[i]]
@@ -543,7 +554,9 @@ function quit () {
   quitting = true
   restart(function () {
     debug("Graceful shutdown successful")
-    process.exit(0)
+    setTimeout(function() {
+      process.exit(0)
+    }, 20)
   })
 }
 
