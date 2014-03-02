@@ -34,7 +34,19 @@ if (argv.wait_long_time) {
 
 server.listen(8078);
 
-process.on('disconnect', function() {
-	logger.info('Bye', process.pid);
-});
+if (argv.shutdown_callback) {
+	process.on('message', function(msg) {
+		if (msg === 'shutdown') {
+			logger.info('Worker shutdown', process.pid);
+			if (argv.shutdown_crash) {
+				setTimeout(function() {
+					throw new Error('toto');
+				}, 50);
+			}
+		}
+	});
+}
 
+process.on('disconnect', function() {
+	logger.info('Bye');
+});
