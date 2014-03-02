@@ -5,12 +5,20 @@ var argv = require('optimist').argv,
 
 logger.reconfigure({file: argv.log_file});
 
+var sub_args = [];
+Object.keys(argv).forEach(function(x) {
+	if (x !== '_' && x.substring(0, 1) !== '$') {
+		sub_args = sub_args.concat(['--' + x, argv[x]]);
+	}
+});
+
 clusterMaster({
 	exec: './worker.js',
 	size: 5,
-	args: [ '--deep', 'doop', '--log_file', argv.log_file],
+	args: sub_args,
 	logger: logger.info,
 	delayForRestartChecking: 500,
 	delayBeforeKill: 500,
 	minRestartAge: 200,
+	delayBeforeRestartWhenMinRestartAge: 1000,
 });

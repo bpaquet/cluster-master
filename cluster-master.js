@@ -103,7 +103,8 @@ function clusterMaster (config) {
 
   // now make it the right size
   debug((replAddressPath) ? 'resize and then setup repl' : 'resize')
-  resize(setupRepl)
+  resize()
+  setupRepl()
 }
 
 function select (field) {
@@ -292,6 +293,8 @@ function disconnectWorker(worker) {
   }
 }
 
+var resize_timeout_in_danger;
+
 function forkListener () {
   cluster.on("fork", function (worker) {
     worker.birth = Date.now()
@@ -315,7 +318,12 @@ function forkListener () {
           debug("Worker %j died too quickly, danger", id)
           danger = true
           // still try again in a few seconds, though.
-          setTimeout(resize, delayBeforeRestartWhenMinRestartAge)
+          if (!resize_timeout_in_danger) {
+            resize_timeout_in_danger = setTimeout(function() {
+              resize_timeout_in_danger = undefined;
+              resize()
+            }, delayBeforeRestartWhenMinRestartAge)
+          }
           return
         }
       } else {
@@ -342,6 +350,10 @@ function restart (cb) {
   if (restarting) {
     debug("Already restarting.  Cannot restart yet.")
     return cb && cb("Already restarting.  Cannot restart yet.")
+  }
+
+  if (!quitting) {
+    debug('Restarting all workers')
   }
 
   restarting = true
@@ -515,6 +527,7 @@ function quitHard () {
 
 
 function quit () {
+  clearTimeout(resize_timeout_in_danger)
   if (quitting) {
     debug("Forceful shutdown")
     // last ditch effort to force-kill all workers.

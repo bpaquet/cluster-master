@@ -14,5 +14,5 @@
   "undef": true,
   "strict": false,
   "trailing": true,
-  "predef": ["describe", "it"]
+  "predef": ["describe", "it", "beforeEach"]
 }

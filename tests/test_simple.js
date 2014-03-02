@@ -5,7 +5,7 @@ var child_process = require('child_process'),
   http = require('http'),
   assert = require('assert');
 
-function run(cmd, callback) {
+function run(cmd, display_stderr, callback) {
   if (fs.existsSync('tests/toto.log')) {
     fs.unlinkSync('tests/toto.log');
   }
@@ -15,7 +15,9 @@ function run(cmd, callback) {
     console.log('[stdout]', data.toString().trim());
   });
   child.stderr.on('data', function(data) {
-    console.log('[stderr]', data.toString().trim());
+    if (display_stderr) {
+      console.log('[stderr]', data.toString().trim());
+    }
   });
   child.on('exit', function(code) {
     callback(code);
@@ -36,11 +38,25 @@ function sendRepl(command, callback) {
 }
 
 function readWorkers(callback) {
-  var c = net.connect({path: 'tests/cluster-master-socket'}, function() {
-    c.write('console.log(JSON.stringify(workers));\n');
+  var out = [];
+  var timeout = setTimeout(function() {
+    console.log('Unable to read from repl', out);
+  }, 200);
+  var c = net.connect({path: 'tests/cluster-master-socket'}, true, function() {
+    c.write('console.log("##" + JSON.stringify(workers) + "##");\n');
     c.on('data', function(d) {
-      if (d.toString().match(/\{"/)) {
-        callback(JSON.parse(d.toString()));
+      var dd = d.toString();
+      out.push(dd);
+      var res = dd.match(/##(\[.*\])##/);
+      if (res) {
+        try {
+          callback(JSON.parse(res[1]));
+          clearTimeout(timeout);
+        }
+        catch(e) {
+          console.log(e, dd);
+          assert.ifError(e);
+        }
         c.end();
       }
     });
@@ -57,15 +73,18 @@ function assertListening(x, callback) {
   });
 }
 
+var k = process.env.k || 30;
 describe('Simple', function() {
 
   it('Kill', function(done) {
-    var child = run('master.js --log_file toto.log', function(code) {
+    var child = run('master.js --log_file toto.log', true, function(code) {
       assert.equal(code, 143);
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 5);
       assert.equal(log.match(/Worker (\d+) disconnect/g), null);
       assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/died too quickly/g), null);
+      assert.equal(log.match(/Restarting all workers/g), null);
       done();
     });
     setTimeout(function() {
@@ -76,12 +95,13 @@ describe('Simple', function() {
   });
 
   it('Quit with repl', function(done) {
-    run('master.js --log_file toto.log', function(code) {
+    run('master.js --log_file toto.log', true, function(code) {
       assert.equal(code, 0);
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 5);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 5);
       assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/Restarting all workers/g), null);
       done();
     });
     setTimeout(function() {
@@ -93,12 +113,14 @@ describe('Simple', function() {
   });
 
   it('Quit with current connection', function(done) {
-    run('master.js --log_file toto.log', function(code) {
+    run('master.js --log_file toto.log', true, function(code) {
       assert.equal(code, 1);
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 5);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 4);
       assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/died too quickly/g), null);
+      assert.equal(log.match(/Restarting all workers/g), null);
       done();
     });
     setTimeout(function() {
@@ -119,12 +141,14 @@ describe('Simple', function() {
   });
 
   it('Worker crash', function(done) {
-    run('master.js --log_file toto.log', function(code) {
+    run('master.js --log_file toto.log', true, function(code) {
       assert.equal(code, 0);
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 6);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 6);
       assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/died too quickly/g), null);
+      assert.equal(log.match(/Restarting all workers/g), null);
       done();
     });
     setTimeout(function() {
@@ -148,19 +172,24 @@ describe('Simple', function() {
   });
 
   it('Restart', function(done) {
-    run('master.js --log_file toto.log', function(code) {
+    run('master.js --log_file toto.log', true, function(code) {
       assert.equal(code, 0);
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 10);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 10);
       assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/died too quickly/g), null);
+      assert.equal(log.match(/Restarting all workers/g).length, 1);
       done();
     });
     setTimeout(function() {
       assertListening(5, function() {
         sendRepl('restart();', function() {
           setTimeout(function() {
-            assertListening(5, function() {
+            assertListening(5, function(d) {
+              for(var i in d) {
+                assert(d[i].id > 4);
+              }
               sendRepl('stop();', function() {
               });
             });
@@ -170,20 +199,21 @@ describe('Simple', function() {
     }, 500);
   });
 
-  it('20 Restart', function(done) {
-    var k = 20;
-    run('master.js --log_file toto.log', function(code) {
+  it(k + ' Restart', function(done) {
+    run('master.js --log_file toto.log', true, function(code) {
       assert.equal(code, 0);
       var log = logs();
-      assert.equal(log.match(/Start worker (\d+)/g).length, k * 5);
-      assert.equal(log.match(/Worker (\d+) disconnect/g).length, k * 5);
+      assert.equal(log.match(/Start worker (\d+)/g).length, (k + 1) * 5);
+      assert.equal(log.match(/Worker (\d+) disconnect/g).length, (k + 1) * 5);
       assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/died too quickly/g), null);
+      assert.equal(log.match(/Restarting all workers/g).length, k);
       done();
     });
     var counter = k;
     var f = function() {
       setTimeout(function() {
-        if (counter === 1) {
+        if (counter === 0) {
           return sendRepl('stop();', function() {
           });
         }
@@ -193,7 +223,7 @@ describe('Simple', function() {
             f();
           });
         });
-      }, 800);
+      }, 1000);
     };
     f();
   });
@@ -205,6 +235,8 @@ describe('Simple', function() {
       assert.equal(log.match(/Start worker (\d+)/g).length, 10);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 10);
       assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/died too quickly/g), null);
+      assert.equal(log.match(/Restarting all workers/g).length, 1);
       done();
     });
     setTimeout(function() {
@@ -227,6 +259,25 @@ describe('Simple', function() {
         });
       });
     }, 500);
+  });
+
+  it('Crash at start', function(done) {
+    run('master.js --log_file toto.log --parse_now toto.json', false, function(code) {
+      assert.equal(code, 0);
+      var log = logs();
+      assert.equal(log.match(/Start worker (\d+)/g).length, 10);
+      assert.equal(log.match(/Worker (\d+) disconnect/g).length, 10);
+      assert.equal(log.match(/died too quickly/g).length, 10);
+      assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/Restarting all workers/g), null);
+      done();
+    });
+    setTimeout(function() {
+      assertListening(0, function() {
+        sendRepl('stop();', function() {
+        });
+      });
+    }, 1500);
   });
 
 });
