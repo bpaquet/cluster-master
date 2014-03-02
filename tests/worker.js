@@ -26,6 +26,12 @@ if (argv.parse_listening) {
 	});
 }
 
+if (argv.wait_long_time) {
+	setTimeout(function() {
+		logger.info('end');
+	}, 3600 * 1000);
+}
+
 server.listen(8078);
 
 process.on('disconnect', function() {

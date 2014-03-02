@@ -91,6 +91,7 @@ describe('Simple', function() {
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 5);
       assert.equal(log.match(/Worker (\d+) disconnect/g), null);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/died too quickly/g), null);
       assert.equal(log.match(/Restarting all workers/g), null);
@@ -110,6 +111,7 @@ describe('Simple', function() {
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 5);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 5);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/Restarting all workers/g), null);
       assert.equal(log.match(/Graceful shutdown successful/g).length, 1);
@@ -123,12 +125,13 @@ describe('Simple', function() {
     }, 500);
   });
 
-  it('Quit with current connection', function(done) {
+  it('Quit with current connection, manual kill', function(done) {
     run('master.js --log_file toto.log', true, function(code) {
       assert.equal(code, 1);
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 5);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 4);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/died too quickly/g), null);
       assert.equal(log.match(/Restarting all workers/g), null);
@@ -145,8 +148,53 @@ describe('Simple', function() {
                 sendRepl('kill();', function() {
                 });
               });
-            }, 500);
+            }, 100);
           });
+        });
+      });
+    }, 500);
+  });
+
+  it('Quit with current connection, no worker disconnect', function(done) {
+    run('master.js --log_file toto.log', true, function(code) {
+      assert.equal(code, 0);
+      var log = logs();
+      assert.equal(log.match(/Start worker (\d+)/g).length, 5);
+      assert.equal(log.match(/Worker (\d+) disconnect/g).length, 5);
+      assert.equal(log.match(/forcefully killing/g).length, 1);
+      assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/died too quickly/g), null);
+      assert.equal(log.match(/Restarting all workers/g), null);
+      assert.equal(log.match(/Graceful shutdown successful/g).length, 1);
+      done();
+    });
+    setTimeout(function() {
+      http.get('http://localhost:8078/toto', function(res) {
+        assert.equal(res.statusCode, 200);
+        assertListening(5, function() {
+          sendRepl('stop();', function() {
+          });
+        });
+      });
+    }, 500);
+  });
+
+  it('Quit with long timeout', function(done) {
+    run('master.js --log_file toto.log --wait_long_time', true, function(code) {
+      assert.equal(code, 0);
+      var log = logs();
+      assert.equal(log.match(/Start worker (\d+)/g).length, 5);
+      assert.equal(log.match(/Worker (\d+) disconnect/g).length, 5);
+      assert.equal(log.match(/forcefully killing/g).length, 5);
+      assert.equal(log.match(/Bye (\d+)/g), null);
+      assert.equal(log.match(/died too quickly/g), null);
+      assert.equal(log.match(/Restarting all workers/g), null);
+      assert.equal(log.match(/Graceful shutdown successful/g).length, 1);
+      done();
+    });
+    setTimeout(function() {
+      assertListening(5, function() {
+        sendRepl('stop();', function() {
         });
       });
     }, 500);
@@ -158,6 +206,7 @@ describe('Simple', function() {
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 6);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 6);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/died too quickly/g), null);
       assert.equal(log.match(/Restarting all workers/g), null);
@@ -190,6 +239,7 @@ describe('Simple', function() {
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 10);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 10);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/died too quickly/g), null);
       assert.equal(log.match(/Restarting all workers/g).length, 1);
@@ -219,6 +269,7 @@ describe('Simple', function() {
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, (k + 1) * 5);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, (k + 1) * 5);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/died too quickly/g), null);
       assert.equal(log.match(/Restarting all workers/g).length, k);
@@ -249,6 +300,7 @@ describe('Simple', function() {
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 10);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 10);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/died too quickly/g), null);
       assert.equal(log.match(/Restarting all workers/g).length, 1);
@@ -283,6 +335,7 @@ describe('Simple', function() {
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 20);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 20);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/died too quickly/g).length, 20);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/Restarting all workers/g), null);
@@ -303,6 +356,7 @@ describe('Simple', function() {
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 25);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 25);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/died too quickly/g).length, 20);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/Restarting all workers/g), null);
@@ -332,6 +386,7 @@ describe('Simple', function() {
         var log = logs();
         assert.equal(log.match(/Start worker (\d+)/g).length, 10 + 5 + k);
         assert.equal(log.match(/Worker (\d+) disconnect/g).length, 10 + 5 + k);
+        assert.equal(log.match(/forcefully killing/g), null);
         assert.equal(log.match(/died too quickly/g).length, k);
         assert.equal(log.match(/Bye (\d+)/g), null);
         assert.equal(log.match(/Restarting all workers/g).length, 2 + k);
@@ -416,6 +471,7 @@ describe('Simple', function() {
       var log = logs();
       assert.equal(log.match(/Start worker (\d+)/g).length, 25);
       assert.equal(log.match(/Worker (\d+) disconnect/g).length, 25);
+      assert.equal(log.match(/forcefully killing/g), null);
       assert.equal(log.match(/died too quickly/g).length, 20);
       assert.equal(log.match(/Bye (\d+)/g), null);
       assert.equal(log.match(/Restarting all workers/g), null);
@@ -445,6 +501,7 @@ describe('Simple', function() {
         var log = logs();
         assert.equal(log.match(/Start worker (\d+)/g).length, 10 + 5 + k);
         assert.equal(log.match(/Worker (\d+) disconnect/g).length, 10 + 5 + k);
+        assert.equal(log.match(/forcefully killing/g), null);
         assert.equal(log.match(/died too quickly/g).length, k);
         assert.equal(log.match(/Bye (\d+)/g), null);
         assert.equal(log.match(/Restarting all workers/g).length, 2 + k);

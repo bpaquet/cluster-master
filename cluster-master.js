@@ -278,6 +278,16 @@ Worker.prototype.kill = function () {
   process.kill(this.pid)
 }
 
+function checkIfDisconnected(worker) {
+  setTimeout(function() {
+    if (worker.process.connected) {
+      debug("Worker %j, doesnt not disconnect, forcefully killing", worker.id)
+      worker.process.kill("SIGKILL")
+    }
+    else {
+    }
+  }, delayBeforeKill)
+}
 function disconnectWorker(worker) {
   if (delayBetweenShutdownAndDisconnect) {
     debug('Sending shutdown signal')
@@ -285,11 +295,13 @@ function disconnectWorker(worker) {
     setTimeout(function() {
       if (worker.process.connected) {
         worker.disconnect();
+        checkIfDisconnected(worker)
       }
     }, delayBetweenShutdownAndDisconnect);
   }
   else {
     worker.disconnect();
+    checkIfDisconnected(worker)
   }
 }
 
@@ -343,10 +355,12 @@ function forkListener () {
     worker.on("disconnect", function () {
       debug("Worker %j disconnect", id)
       // give it 1 second to shut down gracefully, or kill
-      disconnectTimer = setTimeout(function () {
-        debug("Worker %j, forcefully killing", id)
-        worker.process.kill("SIGKILL")
-      }, delayBeforeKill)
+      if (!worker.process.exitCode) {
+        disconnectTimer = setTimeout(function () {
+          debug("Worker %j, forcefully killing", id)
+          worker.process.kill("SIGKILL")
+        }, delayBeforeKill)
+      }
     })
   })
 }
